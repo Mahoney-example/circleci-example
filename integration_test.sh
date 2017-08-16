@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-echo "PERF TESTS PASSED"
+echo "INTEGRATION TESTS PASSED"

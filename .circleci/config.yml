@@ -1,31 +1,53 @@
 jobs:
   build:
+#    working_directory: /circleci-example
+    docker:
+      - image: bash
     steps:
-      - ./build
+      - checkout
+      - run: ./build.sh
 
   deploy_to_dev:
+    docker:
+      - image: bash
     steps:
-      - ./deploy dev
+      - checkout
+      - run: ./deploy.sh dev
 
   integration_test:
+    docker:
+      - image: bash
     steps:
-      - ./integration_test
+      - checkout
+      - run: ./integration_test.sh
 
   acceptance_test:
+    docker:
+      - image: bash
     steps:
-      - ./acceptance_test
+      - checkout
+      - run: ./acceptance_test.sh
 
   deploy_to_perf:
+    docker:
+      - image: bash
     steps:
-      - ./deploy qa
+      - checkout
+      - run: ./deploy.sh qa
 
   perf_test:
+    docker:
+      - image: bash
     steps:
-      - ./perf_test
+      - checkout
+      - run: ./perf_test.sh
 
   deploy_to_prod:
+    docker:
+      - image: bash
     steps:
-      - ./deploy prod
+      - checkout
+      - run: ./deploy.sh prod
 
 workflows:
   version: 2

@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-echo "BUILT"
+echo "PERF TESTS PASSED"
