@@ -1,0 +1,65 @@
+jobs:
+  build:
+    steps:
+      - ./build
+
+  deploy_to_dev:
+    steps:
+      - ./deploy dev
+
+  integration_test:
+    steps:
+      - ./integration_test
+
+  acceptance_test:
+    steps:
+      - ./acceptance_test
+
+  deploy_to_perf:
+    steps:
+      - ./deploy qa
+
+  perf_test:
+    steps:
+      - ./perf_test
+
+  deploy_to_prod:
+    steps:
+      - ./deploy prod
+
+workflows:
+  version: 2
+  build-push-and-deploy:
+    jobs:
+      - build:
+          filters:
+            branches:
+              only: master
+      - deploy_to_dev:
+          requires:
+            - build
+      - integration_test:
+          requires:
+            - build
+      - acceptance_test:
+          requires:
+            - build
+      - deploy_to_perf:
+          requires:
+            - build
+      - perf_test:
+          requires:
+            - deploy_to_perf
+      - qa_sign_off:
+          type: approval
+          requires:
+            - integration_test
+            - acceptance_test
+            - perf_test
+      - manually_approve_deploy_to_prod:
+          type: approval
+          requires:
+            - qa_sign_off
+      - deploy_to_prod:
+          requires:
+            - manually_approve_deploy_to_prod

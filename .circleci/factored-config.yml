@@ -1,0 +1,151 @@
+# This is a depository for named blocks of yaml to be used elsewhere - the
+# equivalent of private methods
+named_config:
+  default_config: &default_config
+    working_directory: /home/circleci/leisuremonitoring
+    machine: true
+
+  default_environment: &default_env
+    DOCKER_REGISTRY: registry.heroku.com
+    DOCKER_REPO: leisuremonitoring
+    DOCKER_ARTIFACT: leisuremonitoring
+
+  setup_git: &setup_git |
+    git config --global user.email "circleci@example.com"
+    git config --global user.name "Circle CI"
+
+  tag_commit_with_version: &tag_commit_with_version
+    ./docker.sh ~/bash_libs/tag-version.sh > .build_version
+
+  version_file: &version_file
+    root: .
+    paths:
+      - .build_version
+
+  restore_sbt_cache: &restore_sbt_cache
+    keys:
+      - sbt_v1-{{ checksum "project/build.properties" }}
+      - sbt_v1
+
+  save_sbt_cache: &save_sbt_cache
+    key: sbt_v1-{{ checksum "project/build.properties" }}
+    paths:
+      - /home/circleci/.sbt
+
+  restore_dependency_cache: &restore_dependency_cache
+    keys:
+      - sbt_build_v2-{{ checksum "build.sbt" }}-{{ checksum "project/build.sbt" }}
+      - sbt_build_v2-{{ checksum "build.sbt" }}
+      - sbt_build_v2
+
+  save_dependency_cache: &save_dependency_cache
+    key: sbt_build_v2-{{ checksum "build.sbt" }}-{{ checksum "project/build.sbt" }}
+    paths:
+      - /home/circleci/.ivy2
+      - /home/circleci/.coursier
+
+  restore_npm_cache: &restore_npm_cache
+    keys:
+      - sbt_npm_v2-{{ checksum "package.json" }}
+      - sbt_npm_v2
+
+  save_npm_cache: &save_npm_cache
+    key: sbt_npm_v2-{{ checksum "package.json" }}
+    paths:
+      - /home/circleci/leisuremonitoring/node_modules
+
+  restore_compilation_cache: &restore_compilation_cache
+    key: sbt_compilation_v1
+
+  save_compilation_cache: &save_compilation_cache
+    key: sbt_compilation_v1-{{ epoch }}
+    paths:
+      - /home/circleci/leisuremonitoring/app/js/target
+      - /home/circleci/leisuremonitoring/app/jvm/target
+      - /home/circleci/leisuremonitoring/project/target
+      - /home/circleci/leisuremonitoring/project/project/target
+
+  store_acceptace_test_reports: &store_acceptace_test_reports
+    path: app/jvm/target/prod/test-reports-html
+    destination: acceptance-test
+
+  push_version_tagged_image_to_repo: &push_version_tagged_image_to_repo
+    command: |
+      version=$(< .build_version tr -d '^@')
+      echo "Pushing ${DOCKER_ARTIFACT}:latest to repo as version $version"
+      ./docker.sh ~/bash_libs/deploy-to-repo.sh "${DOCKER_ARTIFACT}:latest" $version
+
+  deploy_config: &deploy_config
+    <<: *default_config
+    steps:
+      - checkout
+      - run: *setup_git
+      - attach_workspace:
+          at: .
+      - deploy:
+          command: |
+            version=$(< .build_version tr -d '^@')
+            echo "Pushing $version to $TO_ENV"
+            ./do deployVersion $version $TO_ENV
+
+version: 2
+jobs:
+  build:
+    <<: *default_config
+    environment: *default_env
+    steps:
+      - checkout
+
+      - run: *setup_git
+      - run: *tag_commit_with_version
+      - persist_to_workspace: *version_file
+
+      - restore_cache: *restore_sbt_cache
+      - restore_cache: *restore_dependency_cache
+      - restore_cache: *restore_npm_cache
+      - restore_cache: *restore_compilation_cache
+
+      - run: ./do build
+
+      - store_artifacts: *store_acceptace_test_reports
+
+      - save_cache: *save_sbt_cache
+      - save_cache: *save_dependency_cache
+      - save_cache: *save_npm_cache
+      - save_cache: *save_compilation_cache
+
+      - deploy: *push_version_tagged_image_to_repo
+
+  deploy_to_dev:
+    <<: *deploy_config
+    environment:
+      <<: *default_env
+      TO_ENV: dev
+
+  deploy_to_prod:
+    <<: *deploy_config
+    environment:
+      <<: *default_env
+      TO_ENV: prod
+
+workflows:
+  version: 2
+  build-push-and-deploy:
+    jobs:
+      - build:
+          filters:
+            branches:
+              only: master
+      - deploy_to_dev:
+          requires:
+            - build
+          filters:
+            branches:
+              only: master
+      - manually_approve_deploy_to_prod:
+          type: approval
+          requires:
+            - deploy_to_dev
+      - deploy_to_prod:
+          requires:
+            - manually_approve_deploy_to_prod

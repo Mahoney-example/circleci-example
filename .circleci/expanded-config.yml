@@ -1,0 +1,124 @@
+version: 2
+jobs:
+  build:
+    working_directory: /home/circleci/leisuremonitoring
+    machine: true
+    environment:
+      DOCKER_REGISTRY: registry.heroku.com
+      DOCKER_REPO: leisuremonitoring
+      DOCKER_ARTIFACT: leisuremonitoring
+    steps:
+      - checkout
+
+      - run: |
+          git config --global user.email "circleci@example.com"
+          git config --global user.name "Circle CI"
+      - run: ./docker.sh ~/bash_libs/tag-version.sh > .build_version
+      - persist_to_workspace:
+          root: .
+          paths:
+            - .build_version
+
+      - restore_cache:
+          keys:
+            - sbt_v1-{{ checksum "project/build.properties" }}
+            - sbt_v1
+      - restore_cache:
+          keys:
+            - sbt_build_v2-{{ checksum "build.sbt" }}-{{ checksum "project/build.sbt" }}
+            - sbt_build_v2-{{ checksum "build.sbt" }}
+            - sbt_build_v2
+      - restore_cache:
+          keys:
+            - sbt_npm_v2-{{ checksum "package.json" }}
+            - sbt_npm_v2
+      - restore_cache:
+          key: sbt_compilation_v1
+
+      - run: ./do build
+
+      - store_artifacts:
+          path: app/jvm/target/prod/test-reports-html
+          destination: acceptance-test
+
+      - save_cache:
+          key: sbt_v1-{{ checksum "project/build.properties" }}
+          paths:
+            - /home/circleci/.sbt
+      - save_cache:
+          keys:
+            - sbt_npm_v2-{{ checksum "package.json" }}
+            - sbt_npm_v2
+      - save_cache:
+          key: sbt_npm_v2-{{ checksum "package.json" }}
+          paths:
+            - /home/circleci/leisuremonitoring/node_modules
+      - save_cache: key: sbt_compilation_v1
+
+      - deploy:
+          command: |
+            version=$(< .build_version tr -d '^@')
+            echo "Pushing ${DOCKER_ARTIFACT}:latest to repo as version $version"
+            ./docker.sh ~/bash_libs/deploy-to-repo.sh "${DOCKER_ARTIFACT}:latest" $version
+
+  deploy_to_dev:
+    working_directory: /home/circleci/leisuremonitoring
+    machine: true
+    steps:
+      - checkout
+      - run: |
+          git config --global user.email "circleci@example.com"
+          git config --global user.name "Circle CI"
+      - attach_workspace:
+          at: .
+      - deploy:
+          command: |
+            version=$(< .build_version tr -d '^@')
+            echo "Pushing $version to dev"
+            ./do deployVersion $version dev
+    environment:
+      DOCKER_REGISTRY: registry.heroku.com
+      DOCKER_REPO: leisuremonitoring
+      DOCKER_ARTIFACT: leisuremonitoring
+
+  deploy_to_prod:
+    working_directory: /home/circleci/leisuremonitoring
+    machine: true
+    steps:
+      - checkout
+      - run: |
+          git config --global user.email "circleci@example.com"
+          git config --global user.name "Circle CI"
+      - attach_workspace:
+          at: .
+      - deploy:
+          command: |
+            version=$(< .build_version tr -d '^@')
+            echo "Pushing $version to prod"
+            ./do deployVersion $version prod
+    environment:
+      DOCKER_REGISTRY: registry.heroku.com
+      DOCKER_REPO: leisuremonitoring
+      DOCKER_ARTIFACT: leisuremonitoring
+
+workflows:
+  version: 2
+  build-push-and-deploy:
+    jobs:
+      - build:
+          filters:
+            branches:
+              only: master
+      - deploy_to_dev:
+          requires:
+            - build
+          filters:
+            branches:
+              only: master
+      - manually_approve_deploy_to_prod:
+          type: approval
+          requires:
+            - deploy_to_dev
+      - deploy_to_prod:
+          requires:
+            - manually_approve_deploy_to_prod
